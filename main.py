@@ -1,131 +1,39 @@
 #!/usr/bin/env python3
-"""Sum up the world news of Friday 20 November 2026 in one image.
+"""THE WORLD TODAY - one image summing up the world news of Friday 20 November 2026.
 
-An ultra-modern strategic intelligence infographic summarizing the major global events
-of 20 November 2026. Built strictly with Python 3.13 standard library (no network,
-no external dependencies). Produces identical bytes across any number of executions.
+Draws a newspaper front page (masthead, date line, headline panels with small
+drawn motifs, and an "also today" footer) using only the Python standard
+library, and writes it as a 1024x1024 PNG to /output/entry.png
+(or to $OUTPUT_DIR/entry.png when OUTPUT_DIR is set).
 
-Stories covered:
-1. Shenzhen Tri-Summit: Trump, Xi, Putin sign joint peace declaration without Ukraine ceasefire.
-2. ICJ Rohingya Verdict: UN International Court of Justice finds Myanmar state guilty of genocide.
-3. Kyiv Embassy Strikes: Russian missile barrage damages diplomatic missions and historic cathedral.
-4. Global Market Rout: AI equity valuation shock triggers -4.8% Nikkei slide post-Anthropic debut.
-5. Voyager 1 Milestone: NASA probe reaches 1 light-day distance from Earth (24h signal delay).
-6. COP31 & Global Health: Draft drops fossil fuel phaseout; Kenya clears final Ebola patient; Riyadh intercepts missile.
+No network access. The drawing is pure integer arithmetic, so two runs
+produce byte-identical output.
 """
 
 import os
 import struct
 import zlib
 
-W, H = 1024, 1024
-SS = 2
-DW, DH = W * SS, H * SS
-_buf = bytearray(DW * DH * 3)
+W = H = 1024
 
-def _set(dx, dy, rgb):
-    if 0 <= dx < DW and 0 <= dy < DH:
-        i = (dy * DW + dx) * 3
-        _buf[i] = rgb[0]
-        _buf[i + 1] = rgb[1]
-        _buf[i + 2] = rgb[2]
-
-def rect(x, y, w, h, rgb):
-    x0, y0 = int(x * SS), int(y * SS)
-    x1, y1 = int((x + w) * SS), int((y + h) * SS)
-    r, g, b = rgb
-    row = bytes((r, g, b)) * max(0, x1 - x0)
-    for dy in range(max(0, y0), min(DH, y1)):
-        i = (dy * DW + max(0, x0)) * 3
-        _buf[i:i + len(row)] = row
-
-def frame(x, y, w, h, t, rgb):
-    rect(x, y, w, t, rgb)
-    rect(x, y + h - t, w, t, rgb)
-    rect(x, y, t, h, rgb)
-    rect(x + w - t, y, t, h, rgb)
-
-def line(x0, y0, x1, y1, t, rgb):
-    steps = int(max(abs(x1 - x0), abs(y1 - y0)) * SS) + 1
-    rad = t / 2.0
-    for s in range(steps + 1):
-        f = s / steps
-        cx = x0 + (x1 - x0) * f
-        cy = y0 + (y1 - y0) * f
-        r = rad * SS
-        for dy in range(int(cy * SS - r - 1), int(cy * SS + r + 1)):
-            for dx in range(int(cx * SS - r - 1), int(cx * SS + r + 1)):
-                if (dx - cx * SS) ** 2 + (dy - cy * SS) ** 2 <= r * r:
-                    _set(dx, dy, rgb)
-
-def circle(cx, cy, rad, rgb, fill=True):
-    r_out = rad * SS
-    r_in = (rad - 1.8) * SS if not fill else -1
-    cxd, cyd = cx * SS, cy * SS
-    y0 = int(cyd - r_out - 1)
-    y1 = int(cyd + r_out + 1)
-    for dy in range(max(0, y0), min(DH, y1)):
-        dyy = dy - cyd
-        rem = r_out * r_out - dyy * dyy
-        if rem < 0:
-            continue
-        half = int(rem ** 0.5)
-        if fill:
-            xa, xb = int(cxd - half), int(cxd + half)
-            for dx in range(max(0, xa), min(DW, xb)):
-                _set(dx, dy, rgb)
-        else:
-            rem_in = r_in * r_in - dyy * dyy
-            half_in = int(rem_in ** 0.5) if rem_in > 0 else -1
-            for dx in range(int(cxd - half), int(cxd + half)):
-                if abs(dx - cxd) > half_in:
-                    _set(dx, dy, rgb)
-
-def downsample():
-    out = bytearray(W * H * 3)
-    for y in range(H):
-        for x in range(W):
-            i = ((y * SS) * DW + (x * SS)) * 3
-            j = (y * W + x) * 3
-            for c in range(3):
-                s = (_buf[i + c] + _buf[i + 3 + c] +
-                     _buf[i + DW * 3 + c] + _buf[i + DW * 3 + 3 + c])
-                out[j + c] = s // 4
-    return bytes(out)
-
-def write_png(path, rgb_bytes):
-    def chunk(tag, data):
-        c = struct.pack(">I", len(data)) + tag + data
-        c += struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-        return c
-    raw = bytearray()
-    stride = W * 3
-    for y in range(H):
-        raw.append(0)
-        raw += rgb_bytes[y * stride:(y + 1) * stride]
-    png = b"\x89PNG\r\n\x1a\n"
-    png += chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
-    png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
-    png += chunk(b"IEND", b"")
-    with open(path, "wb") as fh:
-        fh.write(png)
-
-# 5x7 bitmap font
+# --------------------------------------------------------------------------
+# 5x7 bitmap font (rows of 5 pixels). Only the characters used below.
+# --------------------------------------------------------------------------
 FONT = {
     "A": (".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
     "B": ("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
-    "C": (".####", "#....", "#....", "#....", "#....", "#....", ".####"),
-    "D": ("####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."),
+    "C": (".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."),
+    "D": ("###..", "#..#.", "#...#", "#...#", "#...#", "#..#.", "###.."),
     "E": ("#####", "#....", "#....", "####.", "#....", "#....", "#####"),
     "F": ("#####", "#....", "#....", "####.", "#....", "#....", "#...."),
-    "G": (".####", "#....", "#....", "#.###", "#...#", "#...#", ".###."),
+    "G": (".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"),
     "H": ("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
     "I": (".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."),
     "J": ("..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."),
     "K": ("#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"),
     "L": ("#....", "#....", "#....", "#....", "#....", "#....", "#####"),
     "M": ("#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"),
-    "N": ("#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"),
+    "N": ("#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#", "#...#"),
     "O": (".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
     "P": ("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
     "Q": (".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"),
@@ -134,14 +42,14 @@ FONT = {
     "T": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
     "U": ("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
     "V": ("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
-    "W": ("#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"),
-    "X": ("#...#", ".#.#.", ".#.#.", "..#..", ".#.#.", ".#.#.", "#...#"),
+    "W": ("#...#", "#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."),
+    "X": ("#...#", ".#.#.", "..#..", "..#..", "..#..", ".#.#.", "#...#"),
     "Y": ("#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."),
     "Z": ("#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"),
-    "0": (".###.", "#..##", "#.#.#", "#.#.#", "##..#", "#...#", ".###."),
+    "0": (".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."),
     "1": ("..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."),
     "2": (".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"),
-    "3": ("####.", "....#", "....#", ".###.", "....#", "....#", "####."),
+    "3": ("#####", "....#", "...#.", ".###.", "....#", "#...#", ".###."),
     "4": ("...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."),
     "5": ("#####", "#....", "####.", "....#", "....#", "#...#", ".###."),
     "6": (".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."),
@@ -151,399 +59,346 @@ FONT = {
     " ": (".....", ".....", ".....", ".....", ".....", ".....", "....."),
     ".": (".....", ".....", ".....", ".....", ".....", ".##..", ".##.."),
     ",": (".....", ".....", ".....", ".....", ".##..", ".##..", ".#..."),
+    "'": ("..#..", "..#..", ".#...", ".....", ".....", ".....", "....."),
     "-": (".....", ".....", ".....", "#####", ".....", ".....", "....."),
     ":": (".....", ".##..", ".##..", ".....", ".##..", ".##..", "....."),
-    "/": ("....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."),
-    "%": ("##..#", "##.#.", "....#", "...#.", "..#..", ".#...", "#..##"),
-    "+": (".....", "..#..", "..#..", ".###.", "..#..", "..#..", "....."),
-    "(": ("...##", "..#..", ".#...", ".#...", ".#...", "..#..", "...##"),
-    ")": ("##...", "..#..", "...#.", "...#.", "...#.", "..#..", "##..."),
-    "[": ("..###", "..#..", "..#..", "..#..", "..#..", "..#..", "..###"),
-    "]": ("###..", "..#..", "..#..", "..#..", "..#..", "..#..", "###.."),
-    "|": ("..#..", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
-    ">": ("#....", ".#...", "..#..", "...#.", "..#..", ".#...", "#...."),
-    "<": ("...#.", "..#..", ".#...", "#....", ".#...", "..#..", "...#."),
     "!": ("..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."),
     "?": (".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."),
-    "$": ("..#..", ".####", "#.#.#", ".###.", ".#.#.", "####.", "..#.."),
-    "*": (".....", "#.#.#", ".###.", "#####", ".###.", "#.#.#", "....."),
-    "#": (".#.#.", ".#.#.", "#####", ".#.#.", "#####", ".#.#.", ".#.#."),
-    "@": (".###.", "#...#", "#.###", "#.#.#", "#.###", "#....", ".###."),
-    "'": ("..#..", "..#..", "..#..", ".....", ".....", ".....", "....."),
-    "^": ("..#..", ".#.#.", "#...#", ".....", ".....", ".....", "....."),
-    "V": ("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+    "%": ("##..#", "##.#.", "....#", "...#.", "..#..", ".#.##", "#..##"),
+    "$": ("..#..", ".####", "#.#..", ".###.", "..#.#", "####.", "..#.."),
+    "/": ("....#", "....#", "...#.", "..#..", ".#...", "#....", "#...."),
+    "(": ("...#.", "..#..", ".#...", ".#...", ".#...", "..#..", "...#."),
+    ")": (".#...", "..#..", "...#.", "...#.", "...#.", "..#..", ".#..."),
+    "•": (".....", ".....", ".###.", ".###.", ".###.", ".....", "....."),
+    "+": (".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."),
+    "&": (".##..", "#..#.", "#.#..", ".#...", "#.#.#", "#..#.", ".##.#"),
+    '"': (".#.#.", ".#.#.", ".....", ".....", ".....", ".....", "....."),
+    ";": (".....", ".##..", ".##..", ".....", ".##..", ".##..", ".#..."),
+    "=": (".....", ".....", "#####", ".....", "#####", ".....", "....."),
 }
 
-def text_width(text, scale):
-    return len(text) * 6 * scale - scale
+# --------------------------------------------------------------------------
+# Colours
+# --------------------------------------------------------------------------
+PAPER = (247, 242, 228)
+INK = (22, 19, 12)
+RED = (163, 22, 33)
+BLUE = (29, 78, 137)
+GOLD = (176, 132, 10)
+GREY = (107, 103, 92)
+LIGHT = (226, 218, 196)
+PINK = (233, 199, 199)
 
-def draw_text(x, y, text, scale, rgb):
+
+class Canvas:
+    def __init__(self, w, h, bg):
+        self.w = w
+        self.h = h
+        self.buf = bytearray(bg) * (w * h)
+
+    def px(self, x, y, color):
+        if 0 <= x < self.w and 0 <= y < self.h:
+            i = (y * self.w + x) * 3
+            self.buf[i:i + 3] = bytes(color)
+
+    def rect(self, x, y, w, h, color):
+        for yy in range(y, y + h):
+            if 0 <= yy < self.h:
+                x0 = max(0, x)
+                x1 = min(self.w, x + w)
+                if x0 < x1:
+                    i = (yy * self.w + x0) * 3
+                    self.buf[i:i + (x1 - x0) * 3] = bytes(color) * (x1 - x0)
+
+    def line(self, x0, y0, x1, y1, color, thick=1):
+        dx = abs(x1 - x0)
+        dy = -abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx + dy
+        while True:
+            for t in range(thick):
+                self.px(x0, y0 + t, color)
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x0 += sx
+            if e2 <= dx:
+                err += dx
+                y0 += sy
+
+    def circle(self, cx, cy, r, color, width=5):
+        half = width / 2.0
+        for yy in range(cy - r - width, cy + r + width + 1):
+            for xx in range(cx - r - width, cx + r + width + 1):
+                d = ((xx - cx) ** 2 + (yy - cy) ** 2) ** 0.5
+                if abs(d - r) <= half:
+                    self.px(xx, yy, color)
+
+
+# --------------------------------------------------------------------------
+# Text
+# --------------------------------------------------------------------------
+def clean(s):
+    return (s.upper()
+             .replace("’", "'").replace("‘", "'")
+             .replace("“", '"').replace("”", '"')
+             .replace("–", "-").replace("—", "-")
+             .replace("·", "•"))
+
+
+def text_width(s, scale):
+    return len(clean(s)) * 6 * scale - scale
+
+
+def draw_text(cv, x, y, s, scale, color, bold=False):
+    s = clean(s)
     cx = x
-    for ch in text.upper():
+    extra = max(1, scale // 3) if bold else 0
+    for ch in s:
         glyph = FONT.get(ch, FONT[" "])
-        for row_i, row in enumerate(glyph):
-            for col_i, px in enumerate(row):
-                if px == "#":
-                    rect(cx + col_i * scale, y + row_i * scale, scale, scale, rgb)
+        for row in range(7):
+            for col in range(5):
+                if glyph[row][col] == "#":
+                    for dx in range(extra + 1):
+                        cv.rect(cx + col * scale + dx, y + row * scale,
+                                scale, scale, color)
         cx += 6 * scale
     return cx
 
-def draw_text_center(cx, y, text, scale, rgb):
-    w = text_width(text, scale)
-    draw_text(cx - w / 2, y, text, scale, rgb)
 
-def wrap(text, scale, max_w):
-    words = text.split()
+def draw_text_centered(cv, cx, y, s, scale, color, bold=False):
+    w = text_width(s, scale)
+    return draw_text(cv, cx - w // 2, y, s, scale, color, bold)
+
+
+def draw_text_right(cv, xr, y, s, scale, color, bold=False):
+    w = text_width(s, scale)
+    return draw_text(cv, xr - w, y, s, scale, color, bold)
+
+
+def wrap(s, scale, max_w):
+    words = clean(s).split()
     lines = []
     cur = ""
     for word in words:
         trial = word if not cur else cur + " " + word
-        if text_width(trial, scale) <= max_w:
+        if text_width(trial, scale) <= max_w or not cur:
             cur = trial
         else:
-            if cur:
-                lines.append(cur)
+            lines.append(cur)
             cur = word
     if cur:
         lines.append(cur)
     return lines
 
-def draw_text_block(x, y, text, scale, rgb, max_w, line_gap=4):
-    lines = wrap(text, scale, max_w)
-    for i, ln in enumerate(lines):
-        draw_text(x, y + i * (7 * scale + line_gap), ln, scale, rgb)
-    return y + len(lines) * (7 * scale + line_gap)
 
-# Theme Palette: Modern Intelligence Slate
-BG = (10, 14, 24)            # Deep Space Navy
-CARD_BG = (16, 22, 38)       # Elevated Surface
-CARD_HEADER = (22, 30, 52)   # Header strip
-BORDER = (34, 46, 74)        # Crisp subtle borders
-TEXT_HEAD = (245, 248, 255)  # Pure White
-TEXT_BODY = (175, 188, 210)  # High Readability Slate
-TEXT_MUTED = (110, 125, 150) # Subtle Label
-ACCENT_CYAN = (0, 210, 255)  # Tech / Space
-ACCENT_GOLD = (255, 190, 40) # Diplomacy / Summit
-ACCENT_RED = (255, 68, 85)   # War / Market Plunge
-ACCENT_GREEN = (40, 220, 130)# Health / Progress
-ACCENT_PURPLE = (175, 110, 255)# International Law
-ACCENT_ORANGE = (255, 120, 50)# Climate / Alert
+def draw_paragraph(cv, x, y, s, scale, color, max_w, leading):
+    lines = wrap(s, scale, max_w)
+    for line in lines:
+        draw_text(cv, x, y, line, scale, color)
+        y += 7 * scale + leading
+    return y
 
-# 60x18 ASCII Dot Map Matrix (Low-res Mercator Landform Representation)
-MAP_DATA = [
-    "....##..........#####...............######..........##......",
-    "..######......#########..######...#########........####.....",
-    ".########....###########.#######.###########......######....",
-    ".#########...###############################.....########...",
-    "..#######......#############################....##########..",
-    "...#####........###########################......########...",
-    "....###..........#########################.........####.....",
-    "..................#######################...................",
-    ".....###............###################............####.....",
-    "....#####............#################............######....",
-    "...#######............###############..............####.....",
-    "...#######.............#############........................",
-    "....#####...............###########..............#####......",
-    ".....###.................#########..............#######.....",
-    "......#...................#######................#####......",
-    "...........................#####............................",
-    "............................###.............................",
-    ".............................#..............................",
-]
 
-def draw_world_map(ox, oy, w, h):
-    # Background for map box
-    rect(ox, oy, w, h, (13, 18, 32))
-    frame(ox, oy, w, h, 1, BORDER)
-    
-    # Lat/Lon subtle grid lines
-    for gy in range(oy + 20, oy + h, 28):
-        line(ox + 4, gy, ox + w - 4, gy, 1, (20, 28, 48))
-    for gx in range(ox + 30, ox + w, 45):
-        line(gx, oy + 4, gx, oy + h - 4, 1, (20, 28, 48))
-        
-    # Render landmass dots
-    rows = len(MAP_DATA)
-    cols = len(MAP_DATA[0])
-    dx = (w - 20) / cols
-    dy = (h - 20) / rows
-    
-    for r in range(rows):
-        for c in range(cols):
-            if MAP_DATA[r][c] == "#":
-                px = ox + 10 + c * dx
-                py = oy + 10 + r * dy
-                rect(px, py, 2.2, 2.2, (38, 52, 85))
+# --------------------------------------------------------------------------
+# Motifs
+# --------------------------------------------------------------------------
+def motif_rings(cv, cx, cy):
+    r = 44
+    cv.circle(cx - 58, cy, r, BLUE, 6)
+    cv.circle(cx, cy, r, RED, 6)
+    cv.circle(cx + 58, cy, r, GOLD, 6)
 
-    # Event Hotspots: Pin locations with glowing pulse rings
-    pins = [
-        (ox + 10 + 46 * dx, oy + 10 + 8 * dy, ACCENT_GOLD, "1", "SHENZHEN"),
-        (ox + 10 + 43 * dx, oy + 10 + 9 * dy, ACCENT_PURPLE, "2", "THE HAGUE/MM"),
-        (ox + 10 + 34 * dx, oy + 10 + 4 * dy, ACCENT_RED, "3", "KYIV"),
-        (ox + 10 + 52 * dx, oy + 10 + 6 * dy, ACCENT_RED, "4", "TOKYO"),
-        (ox + 10 + 35 * dx, oy + 10 + 8 * dy, ACCENT_ORANGE, "5", "RIYADH"),
-        (ox + 10 + 34 * dx, oy + 10 + 11 * dy, ACCENT_GREEN, "6", "NAIROBI"),
-    ]
-    
-    for px, py, col, label, name in pins:
-        circle(px, py, 7, col, fill=False)
-        circle(px, py, 3.5, col, fill=True)
-        # Small indicator label
-        rect(px + 7, py - 6, 9, 11, col)
-        draw_text(px + 8, py - 5, label, 1.2, (10, 14, 24))
 
-def draw_card_base(x, y, w, h, category, cat_color, tag_text):
-    rect(x, y, w, h, CARD_BG)
-    frame(x, y, w, h, 1.4, BORDER)
-    # Header strip
-    rect(x + 1, y + 1, w - 2, 26, CARD_HEADER)
-    # Left Category accent bar
-    rect(x + 1, y + 1, 4, 26, cat_color)
-    # Category badge
-    draw_text(x + 12, y + 8, category, 1.6, cat_color)
-    # Right status tag
-    tw = text_width(tag_text, 1.4)
-    rect(x + w - tw - 16, y + 6, tw + 8, 14, (14, 20, 34))
-    frame(x + w - tw - 16, y + 6, tw + 8, 14, 1, BORDER)
-    draw_text(x + w - tw - 12, y + 8, tag_text, 1.4, TEXT_MUTED)
+def motif_scales(cv, cx, y):
+    top = y
+    cv.line(cx, top, cx, top + 40, INK, 4)
+    cv.line(cx - 36, top + 6, cx + 36, top + 6, INK, 4)
+    cv.circle(cx, top + 2, 5, RED, 5)
+    for sgn in (-1, 1):
+        px_ = cx + sgn * 36
+        cv.line(px_, top + 6, px_ - 11, top + 26, INK, 2)
+        cv.line(px_, top + 6, px_ + 11, top + 26, INK, 2)
+        cv.line(px_ - 14, top + 26, px_ + 14, top + 26, INK, 3)
+        cv.line(px_ - 14, top + 26, px_, top + 33, GOLD, 2)
+        cv.line(px_ + 14, top + 26, px_, top + 33, GOLD, 2)
+    cv.rect(cx - 20, top + 40, 40, 4, INK)
 
-# Mini Visuals for Cards
-def draw_summit_icon(cx, cy):
-    circle(cx, cy, 26, (26, 36, 62), fill=True)
-    circle(cx, cy, 26, ACCENT_GOLD, fill=False)
-    circle(cx - 14, cy - 10, 7, (200, 40, 50))
-    circle(cx + 14, cy - 10, 7, (240, 200, 20))
-    circle(cx, cy + 15, 7, (40, 100, 220))
-    circle(cx, cy - 2, 4, (245, 248, 255))
-    line(cx - 8, cy + 2, cx + 8, cy + 2, 1.5, ACCENT_GOLD)
 
-def draw_justice_icon(cx, cy):
-    line(cx, cy - 20, cx, cy + 22, 3, ACCENT_PURPLE)
-    line(cx - 24, cy - 14, cx + 24, cy - 14, 3, ACCENT_PURPLE)
-    circle(cx, cy - 18, 3.5, ACCENT_PURPLE)
-    for sx in (cx - 24, cx + 24):
-        line(sx, cy - 14, sx - 8, cy + 4, 1.5, ACCENT_PURPLE)
-        line(sx, cy - 14, sx + 8, cy + 4, 1.5, ACCENT_PURPLE)
-        line(sx - 10, cy + 4, sx + 10, cy + 4, 2, ACCENT_PURPLE)
-    rect(cx - 16, cy + 22, 32, 4, ACCENT_PURPLE)
+def motif_chart(cv, x, y, w, h):
+    cv.line(x, y, x, y + h, GREY, 2)
+    cv.line(x, y + h, x + w, y + h, GREY, 2)
+    pts = [(0.02, 0.18), (0.16, 0.10), (0.30, 0.26), (0.44, 0.22),
+           (0.58, 0.44), (0.72, 0.40), (0.86, 0.66), (0.99, 0.88)]
+    prev = None
+    for fx, fy in pts:
+        px_ = int(x + fx * w)
+        py_ = int(y + fy * h)
+        if prev is not None:
+            cv.line(prev[0], prev[1], px_, py_, RED, 4)
+        prev = (px_, py_)
+    ex, ey = prev
+    cv.line(ex, ey, ex - 12, ey - 1, RED, 4)
+    cv.line(ex, ey, ex - 3, ey - 12, RED, 4)
 
-def draw_cathedral_icon(cx, cy):
-    rect(cx - 18, cy - 6, 36, 30, (26, 36, 60))
-    circle(cx, cy - 12, 16, ACCENT_GOLD)
-    line(cx, cy - 32, cx, cy - 22, 2.5, ACCENT_GOLD)
-    line(cx - 5, cy - 28, cx + 5, cy - 28, 2.5, ACCENT_GOLD)
-    circle(cx + 20, cy - 16, 12, ACCENT_RED, fill=False)
-    circle(cx + 20, cy - 16, 5, ACCENT_RED, fill=True)
-    circle(cx, cy, 32, (45, 60, 95), fill=False)
 
-def draw_market_chart(x, y, w, h):
-    rect(x, y, w, h, (12, 16, 28))
-    frame(x, y, w, h, 1, BORDER)
-    for i in range(1, 4):
-        gy = y + int(h * i / 4)
-        line(x + 2, gy, x + w - 2, gy, 1, (20, 28, 48))
-    pts = [(0.05, 0.2), (0.22, 0.15), (0.38, 0.42), (0.55, 0.35),
-           (0.72, 0.68), (0.86, 0.62), (0.96, 0.90)]
-    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-        line(x + w * ax, y + h * ay, x + w * bx, y + h * by, 2.8, ACCENT_RED)
-    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-        rect(x + w * bx - 2, y + h * by, 4, y + h - (y + h * by) - 2, (45, 18, 25))
+def motif_flags(cv, x, y):
+    # EU: navy field, ring of gold stars. UK: white field, red cross, blue border.
+    import math
+    cv.rect(x, y, 84, 54, BLUE)
+    for k in range(12):
+        ang = 2 * math.pi * k / 12
+        sx = int(x + 42 + 16 * math.cos(ang))
+        sy = int(y + 27 + 16 * math.sin(ang))
+        cv.rect(sx - 2, sy - 2, 5, 5, GOLD)
+    ux = x + 58
+    cv.rect(ux, y, 84, 54, PAPER)
+    cv.rect(ux, y, 84, 3, BLUE)
+    cv.rect(ux, y + 51, 84, 3, BLUE)
+    cv.rect(ux, y, 3, 54, BLUE)
+    cv.rect(ux + 81, y, 3, 54, BLUE)
+    cv.rect(ux + 38, y, 9, 54, RED)
+    cv.rect(ux, y + 23, 84, 9, RED)
 
-def draw_voyager_icon(cx, cy):
-    seed = 42
-    for _ in range(18):
-        seed = (seed * 1103515245 + 12345) % (2**31)
-        sx = cx - 35 + (seed % 70)
-        seed = (seed * 1103515245 + 12345) % (2**31)
-        sy = cy - 35 + (seed % 70)
-        rect(sx, sy, 1.5, 1.5, (160, 190, 240))
-    circle(cx - 6, cy, 18, (220, 235, 255), fill=False)
-    circle(cx - 6, cy, 4, (240, 245, 255))
-    line(cx - 6, cy, cx + 16, cy - 12, 2, ACCENT_CYAN)
-    for rad in (14, 24, 34):
-        circle(cx + 26, cy - 20, rad, (30, 80, 140), fill=False)
-    circle(cx + 34, cy - 26, 3, (80, 160, 255))
 
-def draw_climate_health_icon(cx, cy):
-    rect(cx - 22, cy - 16, 20, 24, (20, 34, 55))
-    line(cx - 22, cy + 8, cx - 12, cy + 22, 2, ACCENT_GREEN)
-    line(cx - 2, cy + 8, cx - 12, cy + 22, 2, ACCENT_GREEN)
-    line(cx - 22, cy - 16, cx - 2, cy - 16, 2, ACCENT_GREEN)
-    rect(cx - 14, cy - 8, 4, 16, ACCENT_GREEN)
-    rect(cx - 18, cy - 2, 12, 4, ACCENT_GREEN)
-    rect(cx + 6, cy - 14, 18, 26, (35, 25, 30))
-    circle(cx + 15, cy - 14, 9, ACCENT_ORANGE, fill=False)
-    circle(cx + 15, cy + 12, 9, ACCENT_ORANGE, fill=False)
-    line(cx + 4, cy + 16, cx + 26, cy - 16, 2, ACCENT_RED)
+# --------------------------------------------------------------------------
+# Page composition
+# --------------------------------------------------------------------------
+def story(cv, x, y, w, kicker, headline_lines, body, body_w=None, motif=None):
+    draw_text(cv, x, y, kicker, 2, RED, bold=True)
+    y += 19
+    for line in headline_lines:
+        draw_text(cv, x, y, line, 4, INK, bold=True)
+        y += 34
+    y += 4
+    yb = draw_paragraph(cv, x, y, body, 2, INK, body_w or w, 5)
+    if motif == "scales":
+        motif_scales(cv, x + w - 52, y + 2)
+    elif motif == "chart":
+        motif_chart(cv, x + w - 168, y + 2, 160, 46)
+    elif motif == "flags":
+        motif_flags(cv, x + w - 150, y + 2)
+    return yb
+
+
+def build():
+    cv = Canvas(W, H, PAPER)
+    M = 36
+    CW = W - 2 * M
+
+    # masthead
+    cv.rect(M, 24, CW, 3, INK)
+    draw_text_centered(cv, W // 2, 38, "THE WORLD TODAY", 10, INK, bold=True)
+    cv.rect(M, 120, CW, 1, INK)
+    cv.rect(M, 125, CW, 3, INK)
+
+    # date bar
+    cv.rect(M, 136, CW, 40, INK)
+    draw_text(cv, M + 16, 145, "FRIDAY 20 NOVEMBER 2026", 3, PAPER, bold=True)
+    draw_text_right(cv, W - M - 16, 145, "THE DAY IN ONE IMAGE", 3, PAPER)
+
+    # lead story
+    y = 192
+    draw_text(cv, M, y, "SHENZHEN - APEC SUMMIT", 3, RED, bold=True)
+    motif_rings(cv, W - M - 118, y + 62)
+    y += 30
+    for line in ("THREE POWERS", "SIGN A 'PEACE", "DECLARATION'"):
+        draw_text(cv, M, y, line, 7, INK, bold=True)
+        y += 58
+    y += 4
+    y = draw_paragraph(
+        cv, M, y,
+        "TRUMP, XI AND PUTIN END THE FIRST US-CHINA-RUSSIA SUMMIT WITH A "
+        "JOINT VOW: NO NUCLEAR WAR, MORE FUEL, A REFORMED UN. UKRAINE IS "
+        "NEVER MENTIONED.",
+        3, INK, CW, 7)
+    y += 10
+    cv.rect(M, y, CW, 2, INK)
+    y += 12
+
+    # row of two: Ukraine war + ICJ
+    colw = CW // 2 - 10
+    x2 = M + CW // 2 + 10
+    y_left = story(
+        cv, M, y, colw, "UKRAINE WAR",
+        ("MISSILES FALL ON", "NATO SOIL"),
+        "RUSSIA'S BIGGEST STRIKE OF THE MONTH - 110+ MISSILES, 400 "
+        "DRONES - HITS THREE KYIV BRIDGES AND EMBASSIES. TWO MISSILES "
+        "AND A DRONE FALL IN POLAND.")
+    y_right = story(
+        cv, x2, y, colw, "THE HAGUE - WORLD COURT",
+        ("ICJ: MYANMAR", "COMMITTED GENOCIDE"),
+        "JUDGES RULE 9-6 IN THE GAMBIA'S CASE THAT THE 2017 CRACKDOWN "
+        "WAS GENOCIDE - A FIRST FOR A STATE. REPARATIONS ARE ORDERED.",
+        body_w=colw - 100, motif="scales")
+    y = max(y_left, y_right) + 8
+    cv.rect(M, y, CW, 2, INK)
+    y += 12
+
+    # row of two: markets + UK/EU
+    y_left = story(
+        cv, M, y, colw, "MARKETS",
+        ("AI FEVER BREAKS -", "STOCKS TUMBLE"),
+        "DOUBTS OVER AI SPENDING SINK STOCKS: THE S&P 500 FALLS 3.7% "
+        "INTO CORRECTION, THE NIKKEI 5.06%. ANTHROPIC SLIDES AFTER "
+        "ITS $81BN IPO.",
+        body_w=colw - 178, motif="chart")
+    y_right = story(
+        cv, x2, y, colw, "BRUSSELS SUMMIT",
+        ("UK AND EU SIGN", "NEW DEAL"),
+        "FOOD TRADE, CARBON MARKETS AND A YOUTH MOBILITY SCHEME ARE "
+        "AGREED. BURNHAM EYES EVEN CLOSER TIES.",
+        body_w=colw - 160, motif="flags")
+    y = max(y_left, y_right) + 10
+    cv.rect(M, y, CW, 2, INK)
+    y += 10
+
+    # footer: black "also today" bar
+    cv.rect(M, y, CW, 56, INK)
+    draw_text(cv, M + 16, y + 6, "ALSO TODAY - HOUTHI MISSILE DAMAGES "
+              "RIYADH'S TALLEST TOWER", 2, PAPER, bold=True)
+    draw_text(cv, M + 16, y + 22, "UKRAINE HITS CRIMEA BRIDGE AGAIN • "
+              "FOSSIL-FUEL PHASE-OUT", 2, PAPER)
+    draw_text(cv, M + 16, y + 38, "DROPPED FROM COP31 DRAFT • VOYAGER 1 "
+              "AT ONE LIGHT-DAY", 2, PAPER)
+    y += 64
+    draw_text_centered(cv, W // 2, y,
+                       "COMPILED FROM THE DAY'S REPORTING - REUTERS, BBC, "
+                       "AL JAZEERA, SCMP", 2, GREY)
+    return cv
+
+
+def save_png(cv, path):
+    raw = bytearray()
+    row_bytes = cv.w * 3
+    for yy in range(cv.h):
+        raw.append(0)
+        raw += cv.buf[yy * row_bytes:(yy + 1) * row_bytes]
+
+    def chunk(tag, data):
+        out = struct.pack(">I", len(data)) + tag + data
+        out += struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        return out
+
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", struct.pack(">IIBBBBB", cv.w, cv.h, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+    png += chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
+    return len(png)
+
 
 def main():
-    rect(0, 0, W, H, BG)
-    frame(8, 8, W - 16, H - 16, 2, BORDER)
-    frame(12, 12, W - 24, H - 24, 1, (20, 28, 48))
+    out_dir = os.environ.get("OUTPUT_DIR", "/output")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "entry.png")
+    size = save_png(build(), path)
+    print(f"wrote {path} ({size} bytes)")
 
-    # 1. TOP HEADER / MASTHEAD
-    rect(16, 16, W - 32, 48, (14, 20, 36))
-    frame(16, 16, W - 32, 48, 1.2, BORDER)
-    circle(34, 40, 5, ACCENT_CYAN)
-    draw_text(48, 26, "GLOBAL DISPATCH", 3, TEXT_HEAD)
-    draw_text(48, 48, "STRATEGIC INTELLIGENCE BRIEFING // SPECIAL EDITION", 1.2, ACCENT_CYAN)
-    draw_text_center(W - 170, 26, "FRIDAY, 20 NOVEMBER 2026", 2.2, TEXT_HEAD)
-    draw_text_center(W - 170, 46, "EDITION NO. 325 | VERIFIED MULTI-FEED | UTC 21:00", 1.2, TEXT_MUTED)
-
-    # 2. TICKER BAR
-    rect(16, 68, W - 32, 26, (18, 24, 42))
-    frame(16, 68, W - 32, 26, 1, BORDER)
-    ticker_items = [
-        ("NIKKEI 225", "38,420  -4.8% V", ACCENT_RED),
-        ("NASDAQ", "18,110  -3.2% V", ACCENT_RED),
-        ("BRENT CRUDE", "$74.20  +1.4% ^", ACCENT_GOLD),
-        ("GOLD", "$2,714  +0.8% ^", ACCENT_GREEN),
-        ("DEFENSE ALERT", "CONDITION AMBER", ACCENT_ORANGE),
-    ]
-    cur_x = 28
-    for label, val, col in ticker_items:
-        draw_text(cur_x, 76, label + ":", 1.2, TEXT_MUTED)
-        cur_x += text_width(label + ":", 1.2) + 6
-        draw_text(cur_x, 76, val, 1.2, col)
-        cur_x += text_width(val, 1.2) + 18
-        if cur_x < W - 100:
-            draw_text(cur_x - 10, 76, "|", 1.2, (34, 46, 74))
-
-    # 3. WORLD INCIDENT MAP & GLOBAL IMPACT SUMMARY
-    draw_world_map(16, 98, 620, 202)
-    draw_text(26, 108, "GLOBAL INCIDENT MATRIX // GEOLOCATION OF KEY DEVELOPMENTS", 1.4, ACCENT_CYAN)
-    
-    rect(642, 98, 366, 202, CARD_BG)
-    frame(642, 98, 366, 202, 1.2, BORDER)
-    rect(643, 99, 364, 24, CARD_HEADER)
-    draw_text(654, 106, "TOP STRATEGIC DEVELOPMENTS", 1.5, ACCENT_GOLD)
-    
-    top_bullets = [
-        ("[1] SHENZHEN", "US-China-Russia peace pact; no Ukraine deal.", ACCENT_GOLD),
-        ("[2] THE HAGUE", "ICJ finds Myanmar guilty of Rohingya genocide.", ACCENT_PURPLE),
-        ("[3] KYIV AXIS", "Barrage hits embassies & historic cathedral.", ACCENT_RED),
-        ("[4] MARKETS", "AI equity shockwaves trigger -4.8% Nikkei slide.", ACCENT_RED),
-        ("[5] DEEP SPACE", "Voyager 1 reaches 1 light-day signal boundary.", ACCENT_CYAN),
-        ("[6] HEALTH/ENV", "Kenya clears Ebola; COP31 drops fossil exit.", ACCENT_GREEN),
-    ]
-    by = 130
-    for tag, desc, col in top_bullets:
-        draw_text(654, by, tag, 1.3, col)
-        draw_text(744, by, desc, 1.1, TEXT_BODY)
-        by += 26
-
-    # 4. SIX-CARD INTELLIGENCE GRID
-    CW = 488
-    CH = 210
-    
-    # CARD 1
-    c1x, c1y = 16, 306
-    draw_card_base(c1x, c1y, CW, CH, "DIPLOMACY // GEOPOLITICS", ACCENT_GOLD, "HOTSPOT [1]")
-    draw_summit_icon(c1x + 54, c1y + 80)
-    draw_text(c1x + 116, c1y + 40, "TRUMP, XI & PUTIN CONCLUDE", 2.4, TEXT_HEAD)
-    draw_text(c1x + 116, c1y + 60, "HISTORIC SHENZHEN TRI-SUMMIT", 2.4, ACCENT_GOLD)
-    draw_text_block(c1x + 116, c1y + 84,
-                    "THE LEADERS OF THE UNITED STATES, CHINA, AND RUSSIA ISSUED "
-                    "A JOINT PEACE DECLARATION IN SHENZHEN. HOWEVER, THE COMMUNIQUE "
-                    "NOTABLY OMITTED ANY CONCRETE ACCORD ON A UKRAINE CEASEFIRE, "
-                    "TRIGGERING SKEPTICISM ACROSS WESTERN ALLIANCES.",
-                    1.4, TEXT_BODY, 356, line_gap=4)
-    rect(c1x + 10, c1y + 176, CW - 20, 24, (12, 16, 28))
-    draw_text(c1x + 18, c1y + 183, "OUTCOME: JOINT PACT SIGNED  |  CEASEFIRE CLAUSE: OMITTED", 1.2, ACCENT_GOLD)
-
-    # CARD 2
-    c2x, c2y = 520, 306
-    draw_card_base(c2x, c2y, CW, CH, "INTERNATIONAL LAW // UN ICJ", ACCENT_PURPLE, "RULING [2]")
-    draw_justice_icon(c2x + 54, c2y + 80)
-    draw_text(c2x + 116, c2y + 40, "ICJ RULES MYANMAR GUILTY OF", 2.4, TEXT_HEAD)
-    draw_text(c2x + 116, c2y + 60, "GENOCIDE AGAINST ROHINGYA", 2.4, ACCENT_PURPLE)
-    draw_text_block(c2x + 116, c2y + 84,
-                    "IN A LANDMARK VERDICT AT THE HAGUE, THE INTERNATIONAL COURT OF "
-                    "JUSTICE FOUND THE STATE OF MYANMAR RESPONSIBLE FOR GENOCIDE AGAINST "
-                    "ROHINGYA MUSLIMS, ESTABLISHING ITS FIRST FORMAL STATE-LEVEL "
-                    "GENOCIDE DETERMINATION IN MODERN LEGAL HISTORY.",
-                    1.4, TEXT_BODY, 356, line_gap=4)
-    rect(c2x + 10, c2y + 176, CW - 20, 24, (12, 16, 28))
-    draw_text(c2x + 18, c2y + 183, "LEGAL STATUS: FIRST FORMAL STATE GENOCIDE CONVICTION", 1.2, ACCENT_PURPLE)
-
-    # CARD 3
-    c3x, c3y = 16, 524
-    draw_card_base(c3x, c3y, CW, CH, "WAR IN UKRAINE // BARRAGE", ACCENT_RED, "COMBAT [3]")
-    draw_cathedral_icon(c3x + 54, c3y + 80)
-    draw_text(c3x + 116, c3y + 40, "RUSSIAN BARRAGE STRIKES KYIV:", 2.4, TEXT_HEAD)
-    draw_text(c3x + 116, c3y + 60, "EMBASSIES & CATHEDRAL HIT", 2.4, ACCENT_RED)
-    draw_text_block(c3x + 116, c3y + 84,
-                    "A COORDINATED VOLLEY OF RUSSIAN HYPERSONIC MISSILES STRUCK "
-                    "CENTRAL KYIV, DAMAGING MULTIPLE EUROPEAN EMBASSIES AND "
-                    "HISTORIC ST. VOLODYMYR'S CATHEDRAL. MEANWHILE, UKRAINE STRUCK "
-                    "THE CRIMEA BRIDGE FOR THE THIRD TIME THIS WEEK.",
-                    1.4, TEXT_BODY, 356, line_gap=4)
-    rect(c3x + 10, c3y + 176, CW - 20, 24, (12, 16, 28))
-    draw_text(c3x + 18, c3y + 183, "CIVILIAN INFRASTRUCTURE DAMAGED  |  CRIMEA BRIDGE RE-HIT", 1.2, ACCENT_RED)
-
-    # CARD 4
-    c4x, c4y = 520, 524
-    draw_card_base(c4x, c4y, CW, CH, "GLOBAL MARKETS // TECH ROUT", ACCENT_RED, "SELLOFF [4]")
-    draw_market_chart(c4x + 16, c4y + 40, 84, 88)
-    draw_text(c4x + 116, c4y + 40, "GLOBAL STOCKS TUMBLE ON AI", 2.4, TEXT_HEAD)
-    draw_text(c4x + 116, c4y + 60, "VALUATION BACKLASH: NIKKEI -4.8%", 2.4, ACCENT_RED)
-    draw_text_block(c4x + 116, c4y + 84,
-                    "FOLLOWING ANTHROPIC'S RECORD NASDAQ LISTING, DEEPENING "
-                    "VALUATION SKEPTICISM TRIGGERED A SHARP TECH ROUT WORLDWIDE. "
-                    "TOKYO'S NIKKEI 225 PLUNGED 4.8%, WITH NASDAQ AND EUROPEAN BOURSES "
-                    "SUFFERING SUBSTANTIAL HIGH-VOLUME SELLOFFS.",
-                    1.4, TEXT_BODY, 356, line_gap=4)
-    rect(c4x + 10, c4y + 176, CW - 20, 24, (12, 16, 28))
-    draw_text(c4x + 18, c4y + 183, "MARKET METRIC: NIKKEI -4.8%  |  NASDAQ TECH COMPOSITE -3.2%", 1.2, ACCENT_RED)
-
-    # CARD 5
-    c5x, c5y = 16, 742
-    draw_card_base(c5x, c5y, CW, CH, "SPACE EXPLORATION // DEEP SIGNAL", ACCENT_CYAN, "VOYAGE [5]")
-    draw_voyager_icon(c5x + 54, c5y + 80)
-    draw_text(c5x + 116, c5y + 40, "VOYAGER 1 PHONES HOME FROM", 2.4, TEXT_HEAD)
-    draw_text(c5x + 116, c5y + 60, "ONE LIGHT-DAY DISTANCE", 2.4, ACCENT_CYAN)
-    draw_text_block(c5x + 116, c5y + 84,
-                    "NASA CONFIRMED THAT VOYAGER 1 HAS REACHED AN UNPRECEDENTED "
-                    "MILESTONE: RADIO SIGNALS NOW TAKE A FULL 24 HOURS AT THE SPEED "
-                    "OF LIGHT (25.9 BILLION KILOMETERS) TO TRAVEL ONE-WAY BACK TO EARTH, "
-                    "TRANSMITTING PRECIOUS INTERSTELLAR PLASMA DATA.",
-                    1.4, TEXT_BODY, 356, line_gap=4)
-    rect(c5x + 10, c5y + 176, CW - 20, 24, (12, 16, 28))
-    draw_text(c5x + 18, c5y + 183, "DISTANCE: 1 LIGHT-DAY (25.9B KM)  |  SIGNAL TIME: 24.0 HRS", 1.2, ACCENT_CYAN)
-
-    # CARD 6
-    c6x, c6y = 520, 742
-    draw_card_base(c6x, c6y, CW, CH, "ENVIRONMENT & GLOBAL HEALTH", ACCENT_GREEN, "BRIEFING [6]")
-    draw_climate_health_icon(c6x + 54, c6y + 80)
-    draw_text(c6x + 116, c6y + 40, "COP31 FOSSIL DRAFT CONTROVERSY", 2.4, TEXT_HEAD)
-    draw_text(c6x + 116, c6y + 60, "& KENYA CLEARS FINAL EBOLA CASE", 2.4, ACCENT_GREEN)
-    draw_text_block(c6x + 116, c6y + 84,
-                    "THE COP31 DRAFT TEXT CONTROVERSIALLY DROPPED CALLS FOR A FAST "
-                    "PHASE-OUT OF FOSSIL FUELS UNDER OIL BLOC PRESSURE. IN POSITIVE NEWS, "
-                    "KENYA DISCHARGED ITS FINAL EBOLA PATIENT. MEANWHILE, RIYADH "
-                    "INTERCEPTED A MISSILE TARGETING A METROPOLITAN TOWER.",
-                    1.4, TEXT_BODY, 356, line_gap=4)
-    rect(c6x + 10, c6y + 176, CW - 20, 24, (12, 16, 28))
-    draw_text(c6x + 18, c6y + 183, "KENYA: EBOLA FREE  |  COP31: PACT WATERED  |  RIYADH: DEFENSE OK", 1.2, ACCENT_GREEN)
-
-    # 5. FOOTER
-    rect(16, 960, W - 32, 44, (14, 18, 30))
-    frame(16, 960, W - 32, 44, 1, BORDER)
-    draw_text(28, 970, "INTELLIGENCE SOURCE: VERIFIED CROSS-FEED (UN, REUTERS, NASA, AP, BLOOMBERG)", 1.2, TEXT_MUTED)
-    draw_text(28, 988, "AUTHENTICATION: DETERMINISTIC 2x SS BITMAP COMPILATION // ZERO EXTERNAL ASSETS", 1.2, ACCENT_CYAN)
-    draw_text(W - 270, 970, "MAKE.FUN BOUNTY v2 ENTRY", 1.4, ACCENT_GOLD)
-    draw_text(W - 270, 988, "STATUS: VALIDATED // SHA-256 BIT-EXACT", 1.2, ACCENT_GREEN)
-
-    # Output directory handling
-    out_dir = os.environ.get("OUTPUT_DIR", "output" if os.name == "nt" else "/output")
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, "entry.png")
-    except OSError:
-        path = os.path.join("output", "entry.png")
-        os.makedirs("output", exist_ok=True)
-    write_png(path, downsample())
-    print("SUCCESS: Rendered to " + path)
 
 if __name__ == "__main__":
     main()
